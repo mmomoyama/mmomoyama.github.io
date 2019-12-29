@@ -1,0 +1,303 @@
+///////////////////////////////////////////////
+// マクロ名  ：DiffHelper
+// ファイル名：DiffHelper.mac
+// 製作者名  ：sasak <sasaki0408@hotmail.com>
+// 更新履歴  ：2006/03/13 v1.00 新規作成
+//             2006/03/15 v1.01 メニュー表示条件等変更
+///////////////////////////////////////////////
+
+
+
+
+///////////////////////////////////////////////
+// 定数定義
+///////////////////////////////////////////////
+	// Diffプログラムのフルパス(\は\\で記述すること)
+	$diffexe = "C:\\Program Files\\TortoiseSVN\\bin\\TortoiseMerge.exe";
+
+	// Diffプログラムのコマンドラインオプション
+	$diffopt = "";
+
+	// テンポラリファイル
+	$tmpfile = currentmacrodirectory + "\\" + "SVNReload\\1.tmp";
+	$tmpfile2 = currentmacrodirectory + "\\" + "SVNReload\\2.tmp";
+
+///////////////////////////////////////////////
+// メイン処理
+///////////////////////////////////////////////
+	// 空チェック
+	call isEmpty;
+	if (##return) {
+		message "開かれているファイルが空です。";
+		endmacro;
+	}
+
+	// メニュー作成
+	##menu_idx = 0;
+
+	// 新規ファイルではなく更新済み
+	if (strlen(filename2) != 0 && updated) {
+		$$menu[##menu_idx] = "更新前のファイルと比較";
+		##menu_idx = ##menu_idx + 1;
+		##diffSavedFileIdx = ##menu_idx;
+	} else {
+		##diffSavedFileIdx = -1;
+	}
+
+	$$menu[##menu_idx] = "比較するファイルを開く";
+	##menu_idx = ##menu_idx + 1;
+	##diffSelectFileIdx = ##menu_idx;
+
+	// 開いている秀丸の数が２つ以上
+	if (hidemarucount > 1) {
+		$$menu[##menu_idx] = "秀丸で開いているファイルと比較";
+		##menu_idx = ##menu_idx + 1;
+		##diffOpenedFileIdx = ##menu_idx;
+	} else {
+		##diffOpenedFileIdx = -1;
+	}
+
+	$$menu[##menu_idx] = "キャンセル";
+	##menu_idx = ##menu_idx + 1;
+
+	// メニュー表示
+	mousemenuarray $$menu, ##menu_idx;
+	if(result == ##diffSavedFileIdx) {
+		call diffSavedFile;
+	} else if (result == ##diffSelectFileIdx) {
+		call diffSelectFile;
+	} else if(result == ##diffOpenedFileIdx) {
+		call diffOpenedFile;
+	}
+
+	endmacro;
+
+///////////////////////////////////////////////
+// 更新前のファイルと比較
+///////////////////////////////////////////////
+diffSavedFile:
+	// 現在開かれているファイル名
+	$$srcfilename = filename2;
+
+	// テンポラリファイル作成
+	call createTmpFile $tmpfile;
+	$$dstfilename = $tmpfile;
+
+	// Diffプログラム起動
+	call execDiff $$srcfilename, $$dstfilename;
+
+	return;
+
+///////////////////////////////////////////////
+// 比較するファイルを選択
+///////////////////////////////////////////////
+diffSelectFile:
+	// 更新済みの場合
+	if (updated) {
+		// テンポラリファイル作成
+		call createTmpFile $tmpfile;
+		$$dstfilename = $tmpfile;
+	} else {
+		// 現在開かれているファイル名
+		$$dstfilename = filename2;
+	}
+
+	// 現在開かれているファイルのハンドル
+	##hhandle = hidemaruhandle(0);
+
+	// 開くダイアログ
+	OPEN;
+	if (result != true) return;
+
+	// 選択されたファイル名保持
+	$$srcfilename = filename2;
+
+	// 元ファイルに制御を戻す
+	setactivehidemaru ##hhandle;
+
+	// Diffプログラム起動
+	call execDiff $$srcfilename, $$dstfilename;
+
+	return;
+
+///////////////////////////////////////////////
+// 既に開いているファイルと比較
+///////////////////////////////////////////////
+diffOpenedFile:
+	// 開いている秀丸の数
+	##opendcnt = hidemarucount;
+
+	// ファイル名取得
+	##hno = 1;
+	while (##hno < ##opendcnt) {
+		// (無題)ファイルの場合
+		if (strlen(basename2[##hno]) == 0) {
+			$$filename[##hno-1] = "(無題)";		// フルパス
+			$$basename[##hno-1] = "(無題)";		// ファイル名
+		// 通常ファイルの場合
+		} else {
+			$$filename[##hno-1] = filename2[##hno];	// フルパス
+			$$basename[##hno-1] = basename2[##hno];	// ファイル名
+		}
+		##dupchk[##hno-1] = 0;	// 同一ファイル名チェック用フラグ
+
+		##hno = ##hno + 1;
+	}
+
+	///// 同一ファイル名をチェックし、フルパス表示にする
+	##hno = 1;
+	while (##hno < ##opendcnt) {
+		// 未チェックの場合
+		if (##dupchk[##hno-1] == 0) {
+			##hno2 = ##hno + 1;
+			##dupflg = 0;	// １つでも重複があるか
+			while (##hno2 < ##opendcnt) {
+				// 未チェックで同一ファイル名の場合
+				if (##dupchk[##hno2-1] == 0 &&
+					$$basename[##hno-1] == $$basename[##hno2-1]) {
+					// フルパス表示
+					$$basename[##hno2-1] = $$filename[##hno2-1];
+					##dupchk[##hno2-1] = 1;
+					##dupflg = 1;
+				}
+				##hno2 = ##hno2 + 1;
+			}
+			// １つでも重複があった場合
+			if (##dupflg == 1) {
+				$$basename[##hno-1] = $$filename[##hno-1];
+				##dupchk[##hno-1] = 1;
+			}
+		}
+		##hno = ##hno + 1;
+	}
+
+	// メニュー表示
+	mousemenuarray $$basename, ##opendcnt - 1;
+	##result = result;
+	if(##result == 0) return;
+
+	##dsthandle = hidemaruhandle(0);		// 現在ファイルハンドル
+	##srchandle = hidemaruhandle(##result);	// 選択ファイルハンドル
+
+	// 選択ファイルに制御を移す
+	setactivehidemaru ##srchandle;
+
+	// 選択ファイル空チェック
+	call isEmpty;
+	if (##return) {
+		setactivehidemaru ##dsthandle;		// 元ファイルに制御を戻す
+		message "選択ファイルが空です。";
+		return;
+	}
+
+	// 更新済みの場合
+	if (updated) {
+		// テンポラリファイル作成
+		call createTmpFile $tmpfile2;
+		$$srcfilename = $tmpfile2;
+	} else {
+		// 現在開かれているファイル名
+		$$srcfilename = filename2;
+	}
+
+	// 元ファイルに制御を戻す
+	setactivehidemaru ##dsthandle;
+
+	// 更新済みの場合
+	if (updated) {
+		// テンポラリファイル作成
+		call createTmpFile $tmpfile;
+		$$dstfilename = $tmpfile;
+	} else {
+		// 現在開かれているファイル名
+		$$dstfilename = filename2;
+	}
+
+	// Diffプログラム起動
+	call execDiff $$srcfilename, $$dstfilename;
+
+	return;
+
+///////////////////////////////////////////////
+// テンポラリファイル作成
+//   引数：テンポラリファイルパス
+///////////////////////////////////////////////
+createTmpFile:
+	disabledraw;
+
+	// 範囲選択されている場合
+	if (selecting) {
+		// 選択範囲保存
+		##seltopx = seltopx;
+		##seltopy = seltopy;
+		##selendx = selendx;
+		##selendy = selendy;
+		##rectselect = rectselecting;
+
+		// 全コピー
+		selectall;
+		copy;
+
+		// 選択範囲復元
+		moveto ##seltopx, ##seltopy;
+		if (##rectselect) {
+			beginrect;
+		} else {
+			beginsel;
+		}
+		moveto ##selendx, ##selendy;
+		endsel;
+	} else {
+		// カーソル位置保存
+		##x = x;
+		##y = y;
+
+		// 全コピー
+		selectall;
+		copy;
+
+		// カーソル位置復元
+		moveto ##x, ##y;
+	}
+
+	// 元ファイル情報保持
+	##charset = charset;				// 文字コード
+	##hhandle = hidemaruhandle(0);		// ファイルハンドル
+
+	// テンポラリファイル操作
+	openfile "/h";						// ステルスモードで新規ファイル作成
+	setencode ##charset, 1;				// 文字コード
+	paste;								// 貼り付け
+	saveas $$1;							// 保存
+	##hhandletmp = hidemaruhandle(0);	// ファイルハンドル取得
+
+	// 元ファイルに制御を戻す
+	setactivehidemaru ##hhandle;
+
+	// テンポラリファイル終了
+	closehidemaru ##hhandletmp;
+
+	enabledraw;
+
+	return;
+
+///////////////////////////////////////////////
+// Diffプログラム起動
+//   引数：比較ファイルパス１
+//         比較ファイルパス２
+///////////////////////////////////////////////
+execDiff:
+	// Diffプログラム起動
+	run $diffexe + " " + $diffopt + " \"" + $$1 + "\" \"" + $$2 + "\"";
+	return;
+
+///////////////////////////////////////////////
+// 空ファイルチェック
+//   戻値：true  空ファイル
+//         false 空ファイルではない
+///////////////////////////////////////////////
+isEmpty:
+	if (linecount == 1 && linelen == 0)
+		return true;
+	else
+		return false;
